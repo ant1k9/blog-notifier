@@ -14,15 +14,34 @@ import sqlite3
 import smtplib
 import yaml
 
-from collections import namedtuple
+from collections import namedtuple, Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, Optional
 from urllib.parse import urlparse
 
 
 BLOGS_DB = 'blogs.sqlite3'
 NEW_POST_TUPLE = namedtuple('new_post', 'site header url')
 TIMEOUT = 30
+
+
+def add_to_library(soup: bs4.BeautifulSoup, article: bs4.element.Tag, site: str):
+    article_class = __find_class(soup, article)
+    last_link = prepare_url(__find_link(article), site)
+    try:
+        if article_class:
+            execute(
+                'INSERT INTO blogs (site, last_link, article_container, article_container_class) '
+                f'VALUES("{site}", "{last_link}", "{article.name}", "{article_class}")'
+            )
+        else:
+            execute(
+                'INSERT INTO blogs (site, last_link, article_container) '
+                f'VALUES("{site}", "{last_link}", "{article.name}")'
+            )
+    except sqlite3.IntegrityError:
+        print('\nSite is already present in database')
 
 
 def async_request(func):
@@ -44,8 +63,9 @@ def async_request(func):
 async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, **kwargs):
     response = kwargs.get('response')
     link = kwargs.get('link')
+    assert isinstance(link, str), f'Expected {link} to be a string'
 
-    if response.status == http.HTTPStatus.OK:
+    if getattr(response, 'status', None) == http.HTTPStatus.OK:
         content = await response.content.read()
         soup = bs4.BeautifulSoup(content, 'lxml')
         if blogs_information[link].get('article_container_class'):
@@ -57,16 +77,37 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
             posts = soup.findAll(blogs_information[link].get('article_container'))
 
         for post in posts:
-            link_container = blogs_information[link].get('link_container')
-            header = post.find(link_container).text
-            url = post.find(link_container).find('a').attrs.get('href')
-
-            if url.startswith('/'):
-                parsed_uri = urlparse(link)
-                url = f'{parsed_uri.scheme}://{parsed_uri.netloc}{url}'
+            url = prepare_url(__find_link(post), link)
             if url == last_post:
                 break
-            queue.put_nowait(NEW_POST_TUPLE(link, header, url))
+            queue.put_nowait(
+                NEW_POST_TUPLE(link, post.text.replace('\n', ' ')[:200] + "...", url)
+            )
+
+
+async def explore(site: str):
+    try:
+        soup: Optional[bs4.BeautifulSoup] = None
+
+        async def get_soup(*args, **kwargs):
+            nonlocal soup
+            content = await kwargs['response'].content.read()
+            soup = bs4.BeautifulSoup(content, 'lxml')
+        await async_request(get_soup)(site)()
+        assert isinstance(soup, bs4.BeautifulSoup), f'Cannot get content of {site}'
+
+        for selector in (
+            'article[class*=post]:has(a)',
+            'article:has(a)',
+            'div[class*=post]:has(a)',
+            'div[class*=article]:has(a)',
+        ):
+            articles = soup.select(selector)
+            if len(articles) > 1 and len(articles) < 101:
+                add_to_library(soup, articles[0], site)
+                break
+    except ConnectionError:
+        print(f'Unable to fetch {site}')
 
 
 def execute(query: str):
@@ -74,6 +115,31 @@ def execute(query: str):
     connection.execute(query)
     connection.commit()
     connection.close()
+
+
+def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
+    article_class = ''
+    classes = article.attrs.get('class')
+    for _class in classes:
+        if _class.startswith('post') or _class.startswith('article'):
+            if len(soup.findAll(article.name, {'class': _class})) > 4:
+                article_class = _class
+                break
+    return article_class
+
+
+def __find_link(article: bs4.element.Tag) -> str:
+    links: Counter = Counter()
+    first_link = ""
+    for a_element in article.select('a[href]'):
+        if not first_link:
+            first_link = a_element.attrs.get('href')
+        links.update([a_element.attrs.get('href')])
+    return (
+        links.most_common()[0][0]
+        if links.most_common()[0][1] > links.get(first_link, 0)
+        else first_link
+    )
 
 
 def main():
@@ -115,9 +181,8 @@ def migrate():
             CREATE TABLE IF NOT EXISTS blogs (
                 site                    VARCHAR(256) PRIMARY KEY,
                 last_link               VARCHAR(256),
-                aricle_container        VARCHAR(256),
-                article_container_class VARCHAR(256),
-                link_container          VARCHAR(256)
+                article_container        VARCHAR(256),
+                article_container_class VARCHAR(256)
             )
             """
         )
@@ -155,8 +220,15 @@ def notify():
         smtp.quit()
 
 
+def prepare_url(url: str, site: str) -> str:
+    if url.startswith('/'):
+        parsed_uri = urlparse(site)
+        return f'{parsed_uri.scheme}://{parsed_uri.netloc}{url}'
+    return url
+
+
 async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
-    last_links = {}
+    last_links: Dict[str, str] = {}
     mail_text = ''
 
     while not queue.empty():
@@ -167,6 +239,7 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
         mail_text += f'{header}\n\t\t{url}\n\n'
 
     if mail_text:
+        mail_text.replace('"', "'")
         execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
     blogs_information.update(last_links)
 
@@ -190,6 +263,12 @@ if __name__ == '__main__':
         default=False,
         help='Crawl web links'
     )
+    parser.add_argument(
+        '--explore',
+        default='',
+        type=str,
+        help='Add site to watchlist'
+    )
 
     args = parser.parse_args()
 
@@ -199,3 +278,7 @@ if __name__ == '__main__':
     if args.crawl:
         main()
         notify()
+
+    if args.explore:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(explore(args.explore))

@@ -4,6 +4,7 @@
 >>> python blog_notifier.py --help
 >>> python blog_notifier.py --migrate  # create sqlite3 database with empty tables
 >>> python blog_notifier.py --crawl    # crawl new articles and send email to client
+>>> python blog_notifier.py --explore https://sysadmin.pm/  # add site to watchlist
 ```
 
 ### Example configuration
