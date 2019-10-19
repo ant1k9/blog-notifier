@@ -17,4 +17,13 @@ server:
 client:
     email: example@gmail.com
     password: examplepassword
+    send_to: example@gmail.com
+```
+
+Also you can define client's credentiials with environment variables.
+
+```bash
+>>> export NOTIFIER_CLIENT_EMAIL='example@gmail.com'
+>>> export NOTIFIER_CLIENT_PASSWORD='examplepassword'
+>>> export NOTIFIER_CLIENT_SEND_TO='example@gmail.com'
 ```

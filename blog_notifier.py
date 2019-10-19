@@ -10,6 +10,7 @@ import asyncio
 import async_timeout
 import bs4
 import http
+import os
 import sqlite3
 import smtplib
 import yaml
@@ -135,9 +136,14 @@ def __find_link(article: bs4.element.Tag) -> str:
         if not first_link:
             first_link = a_element.attrs.get('href')
         links.update([a_element.attrs.get('href')])
+
+    most_common = links.most_common()[0][0]
     return (
         links.most_common()[0][0]
-        if links.most_common()[0][1] > links.get(first_link, 0)
+        if (
+            links.most_common()[0][1] > links.get(first_link, 0)
+            and (most_common.startswith('/') or most_common.startswith('http'))
+        )
         else first_link
     )
 
@@ -200,24 +206,31 @@ def migrate():
 def notify():
     with open('credentials.yml') as rfile:
         conf = yaml.load(rfile, Loader=yaml.FullLoader)
-        smtp = smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port'])
-        smtp.login(conf['client']['email'], conf['client']['password'])
+        conf['client']['email'] = (
+            conf['client']['email'] or os.environ.get('NOTIFIER_CLIENT_EMAIL')
+        )
+        conf['client']['password'] = (
+            conf['client']['password'] or os.environ.get('NOTIFIER_CLIENT_PASSWORD')
+        )
+        conf['client']['send_to'] = (
+            conf['client']['send_to'] or os.environ.get('NOTIFIER_CLIENT_SEND_TO')
+        )
 
-        connection = sqlite3.Connection(BLOGS_DB)
+        with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
+            smtp.login(conf['client']['email'], conf['client']['password'])
+            connection = sqlite3.Connection(BLOGS_DB)
 
-        for _id, mail in connection.execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
-            date = datetime.now().strftime("%d/%m/%Y %H:%M")
-            msg = (
-                f'From: blogs@notification.com\n'
-                f'To: {conf["client"]["email"]}\n'
-                f'Subject: Blog notifications\n'
-                f'Date: {date}\n\n'
-                f'{mail}'
-            )
-            smtp.sendmail('blogs@notification.com', conf['client']['email'], msg.encode())
-            execute(f'UPDATE mails SET is_sent = 1 WHERE id = {_id}')
-
-        smtp.quit()
+            for _id, mail in connection.execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
+                date = datetime.now().strftime("%d/%m/%Y %H:%M")
+                msg = (
+                    f'From: {conf["client"]["send_to"]}\n'
+                    f'To: {conf["client"]["send_to"]}\n'
+                    f'Subject: Blog notifications\n'
+                    f'Date: {date}\n\n'
+                    f'{mail}'
+                )
+                smtp.sendmail(conf['client']['email'], f'{conf["client"]["send_to"]}', msg.encode())
+                execute(f'UPDATE mails SET is_sent = 1 WHERE id = {_id}')
 
 
 def prepare_url(url: str, site: str) -> str:
