@@ -11,6 +11,7 @@ import async_timeout
 import bs4
 import http
 import os
+import re
 import sqlite3
 import smtplib
 import yaml
@@ -22,10 +23,20 @@ from typing import Dict, Optional
 from urllib.parse import urlparse
 
 
+############################################################
+## Constants and variables
+############################################################
+
 BLOGS_DB = 'blogs.sqlite3'
 NEW_POST_TUPLE = namedtuple('new_post', 'site header url')
 TIMEOUT = 30
 
+conf = {}
+
+
+############################################################
+## Functions
+############################################################
 
 def add_to_library(soup: bs4.BeautifulSoup, article: bs4.element.Tag, site: str):
     article_class = __find_class(soup, article)
@@ -82,7 +93,7 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
             if url == last_post:
                 break
             queue.put_nowait(
-                NEW_POST_TUPLE(link, post.text.replace('\n', ' ')[:200] + "...", url)
+                NEW_POST_TUPLE(link, post.text.replace('\n', ' ')[:400] + "...", url)
             )
 
 
@@ -102,6 +113,7 @@ async def explore(site: str):
             'article:has(a)',
             'div[class*=post]:has(a)',
             'div[class*=article]:has(a)',
+            'section:has(a)',
         ):
             articles = soup.select(selector)
             if len(articles) > 1 and len(articles) < 101:
@@ -120,7 +132,7 @@ def execute(query: str):
 
 def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
     article_class = ''
-    classes = article.attrs.get('class')
+    classes = article.attrs.get('class') or []
     for _class in classes:
         if _class.startswith('post') or _class.startswith('article'):
             if len(soup.findAll(article.name, {'class': _class})) > 4:
@@ -204,8 +216,30 @@ def migrate():
 
 
 def notify():
+    with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
+        smtp.login(conf['client']['email'], conf['client']['password'])
+        connection = sqlite3.Connection(BLOGS_DB)
+
+        for _id, mail in connection.execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
+            date = datetime.now().strftime("%d/%m/%Y %H:%M")
+            msg = (
+                f'From: {conf["client"]["send_to"]}\n'
+                f'To: {conf["client"]["send_to"]}\n'
+                f'Subject: Blog notifications\n'
+                f'Date: {date}\n\n'
+                f'{mail}'
+            )
+            smtp.sendmail(
+                conf['client']['email'],
+                f'{conf["client"]["send_to"]}',
+                msg.encode()
+            )
+            execute(f'UPDATE mails SET is_sent = 1 WHERE id = {_id}')
+
+
+def parse_mail_configuration():
     with open('credentials.yml') as rfile:
-        conf = yaml.load(rfile, Loader=yaml.FullLoader)
+        conf.update(yaml.load(rfile, Loader=yaml.FullLoader))
         conf['client']['email'] = (
             conf['client']['email'] or os.environ.get('NOTIFIER_CLIENT_EMAIL')
         )
@@ -216,21 +250,27 @@ def notify():
             conf['client']['send_to'] or os.environ.get('NOTIFIER_CLIENT_SEND_TO')
         )
 
+    for (first_key, second_key) in (
+        ('server', 'host'),
+        ('server', 'port'),
+        ('client', 'email'),
+        ('client', 'password'),
+        ('client', 'send_to'),
+    ):
+        if conf.get(first_key, {}).get(second_key) is None:
+            print(f'Please provide conf for {first_key} {second_key}')
+            exit(1)
+        print(
+            f'{first_key} {second_key}: '
+            f'{"********" if second_key == "password" else conf[first_key][second_key]}'
+        )
+
+    try:
         with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
             smtp.login(conf['client']['email'], conf['client']['password'])
-            connection = sqlite3.Connection(BLOGS_DB)
-
-            for _id, mail in connection.execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
-                date = datetime.now().strftime("%d/%m/%Y %H:%M")
-                msg = (
-                    f'From: {conf["client"]["send_to"]}\n'
-                    f'To: {conf["client"]["send_to"]}\n'
-                    f'Subject: Blog notifications\n'
-                    f'Date: {date}\n\n'
-                    f'{mail}'
-                )
-                smtp.sendmail(conf['client']['email'], f'{conf["client"]["send_to"]}', msg.encode())
-                execute(f'UPDATE mails SET is_sent = 1 WHERE id = {_id}')
+    except smtplib.SMTPException:
+        print('Check configuration of the server and correctness of credentials')
+        exit(1)
 
 
 def prepare_url(url: str, site: str) -> str:
@@ -252,7 +292,8 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
         mail_text += f'{header}\n\t\t{url}\n\n'
 
     if mail_text:
-        mail_text.replace('"', "'")
+        mail_text = mail_text.replace('"', "'")
+        mail_text = re.sub('[ \t]+', ' ', mail_text)[:200]
         execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
     blogs_information.update(last_links)
 
@@ -265,19 +306,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Blogs crawler')
 
     parser.add_argument(
-        '--migrate',
+        '-migrate',
         action='store_true',
         default=False,
         help='Create sqlite3 database and prepare tables'
     )
     parser.add_argument(
-        '--crawl',
+        '-crawl',
         action='store_true',
         default=False,
         help='Crawl web links'
     )
     parser.add_argument(
-        '--explore',
+        '-explore',
         default='',
         type=str,
         help='Add site to watchlist'
@@ -289,6 +330,7 @@ if __name__ == '__main__':
         migrate()
 
     if args.crawl:
+        parse_mail_configuration()
         main()
         notify()
 
