@@ -1,9 +1,12 @@
 ## Blog Notifier
 
 This scripts helps you to add to your watchlist sites with list of updating articles.
-Usually sites have typical structure for representing articles or blogposts.
-You can explore the one you want.
-After that you can crawl for updates whenever you like.
+
+Usually sites have typical structure for representing articles or blogposts. 
+
+You can explore the one you want. 
+
+After that you can crawl for updates whenever you like. 
 
 
 ### Usage
