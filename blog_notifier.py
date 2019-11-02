@@ -293,7 +293,7 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
 
     if mail_text:
         mail_text = mail_text.replace('"', "'")
-        mail_text = re.sub('[ \t]+', ' ', mail_text)[:200]
+        mail_text = re.sub('[ ]+', ' ', mail_text)
         execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
     blogs_information.update(last_links)
 
