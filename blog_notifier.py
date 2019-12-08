@@ -110,13 +110,15 @@ async def explore(site: str):
 
         for selector in (
             'article[class*=post]:has(a)',
+            'article[class=issue]:has(a)',
             'article:has(a)',
             'div[class*=post]:has(a)',
             'div[class*=article]:has(a)',
+            'div[class=issue]:has(a)',
             'section:has(a)',
         ):
             articles = soup.select(selector)
-            if len(articles) > 1 and len(articles) < 101:
+            if len(articles) > 1:
                 add_to_library(soup, articles[0], site)
                 break
     except ConnectionError:
@@ -134,7 +136,11 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
     article_class = ''
     classes = article.attrs.get('class') or []
     for _class in classes:
-        if _class.startswith('post') or _class.startswith('article'):
+        if (
+            _class.startswith('post')
+            or _class.startswith('article')
+            or _class.startswith('issue')
+        ):
             if len(soup.findAll(article.name, {'class': _class})) > 4:
                 article_class = _class
                 break
@@ -144,6 +150,10 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
 def __find_link(article: bs4.element.Tag) -> str:
     links: Counter = Counter()
     first_link = ""
+    for h in ['h1', 'h2', 'h3']:
+        header_link = article.select(f'{h} a[href]')
+        if header_link:
+            return header_link[0].attrs.get('href')
     for a_element in article.select('a[href]'):
         if not first_link:
             first_link = a_element.attrs.get('href')
@@ -199,7 +209,7 @@ def migrate():
             CREATE TABLE IF NOT EXISTS blogs (
                 site                    VARCHAR(256) PRIMARY KEY,
                 last_link               VARCHAR(256),
-                article_container        VARCHAR(256),
+                article_container       VARCHAR(256),
                 article_container_class VARCHAR(256)
             )
             """
@@ -274,9 +284,10 @@ def parse_mail_configuration():
 
 
 def prepare_url(url: str, site: str) -> str:
-    if url.startswith('/'):
+    if not '://' in url:
         parsed_uri = urlparse(site)
-        return f'{parsed_uri.scheme}://{parsed_uri.netloc}{url}'
+        url = url.lstrip('/')
+        return f'{parsed_uri.scheme}://{parsed_uri.netloc}/{url}'
     return url
 
 
