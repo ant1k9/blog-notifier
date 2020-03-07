@@ -127,9 +127,11 @@ async def explore(site: str):
 
 def execute(query: str):
     connection = sqlite3.Connection(BLOGS_DB)
-    connection.execute(query)
+    cursor = connection.execute(query)
+    result = cursor.fetchall()
     connection.commit()
     connection.close()
+    return result
 
 
 def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
@@ -228,9 +230,8 @@ def migrate():
 def notify():
     with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
         smtp.login(conf['client']['email'], conf['client']['password'])
-        connection = sqlite3.Connection(BLOGS_DB)
 
-        for _id, mail in connection.execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
+        for _id, mail in execute('SELECT id, mail FROM mails WHERE is_sent = 0'):
             date = datetime.now().strftime("%d/%m/%Y %H:%M")
             msg = (
                 f'From: {conf["client"]["send_to"]}\n'
