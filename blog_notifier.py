@@ -12,14 +12,15 @@ import bs4
 import http
 import os
 import re
-import sqlite3
 import smtplib
+import sqlite3
+import sys
 import yaml
 
-from collections import namedtuple, Counter
+from collections import Counter, namedtuple
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
 
@@ -28,10 +29,10 @@ from urllib.parse import urlparse
 ############################################################
 
 BLOGS_DB = 'blogs.sqlite3'
-NEW_POST_TUPLE = namedtuple('new_post', 'site header url')
+NewPostTuple = namedtuple('new_post', 'site header url')
 TIMEOUT = 30
 
-conf = {}
+conf: Dict[str, Any] = {}
 
 
 ############################################################
@@ -65,8 +66,8 @@ def async_request(func):
                         async with session.get(link) as response:
                             kwargs.update({'link': link, 'response': response})
                             await func(*args, **kwargs)
-            except Exception:
-                print(f'Blame {link}')
+            except Exception as e:
+                print(f'Blame {link}: {e}')
         return inner
     return wrapper
 
@@ -90,10 +91,13 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
 
         for post in posts:
             url = prepare_url(__find_link(post), link)
+            if url == prepare_url('', link):
+                continue
             if url == last_post:
                 break
+
             queue.put_nowait(
-                NEW_POST_TUPLE(link, post.text.replace('\n', ' ')[:400] + "...", url)
+                NewPostTuple(link, post.text.replace('\n', ' ')[:400] + '...', url)
             )
 
 
@@ -116,6 +120,8 @@ async def explore(site: str):
             'div[class*=article]:has(a)',
             'div[class=issue]:has(a)',
             'section:has(a)',
+            'tr:has(a)',
+            'li:has(a)',
         ):
             articles = soup.select(selector)
             if len(articles) > 1:
@@ -151,7 +157,7 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
 
 def __find_link(article: bs4.element.Tag) -> str:
     links: Counter = Counter()
-    first_link = ""
+    first_link = ''
     for h in ['h1', 'h2', 'h3']:
         header_link = article.select(f'{h} a[href]')
         if header_link:
@@ -160,6 +166,9 @@ def __find_link(article: bs4.element.Tag) -> str:
         if not first_link:
             first_link = a_element.attrs.get('href')
         links.update([a_element.attrs.get('href')])
+
+    if len(links) == 0:
+        return ''
 
     most_common = links.most_common()[0][0]
     return (
@@ -281,11 +290,11 @@ def parse_mail_configuration():
             smtp.login(conf['client']['email'], conf['client']['password'])
     except smtplib.SMTPException:
         print('Check configuration of the server and correctness of credentials')
-        exit(1)
+        sys.exit(1)
 
 
 def prepare_url(url: str, site: str) -> str:
-    if not '://' in url:
+    if '://' not in url:
         parsed_uri = urlparse(site)
         url = url.lstrip('/')
         return f'{parsed_uri.scheme}://{parsed_uri.netloc}/{url}'
