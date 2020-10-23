@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import async_timeout
 import bs4
+import contextlib
 import http
 import os
 import re
@@ -20,7 +21,7 @@ import yaml
 from collections import Counter, namedtuple
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Generator, Optional
 from urllib.parse import urlparse
 
 
@@ -181,16 +182,32 @@ def __find_link(article: bs4.element.Tag) -> str:
     )
 
 
-def main():
+@contextlib.contextmanager
+def __get_cursor() -> Generator[sqlite3.Cursor, None, None]:
     connection = sqlite3.Connection(BLOGS_DB)
     connection.row_factory = sqlite3.Row
     cursor = connection.cursor()
+    try:
+        yield cursor
+    finally:
+        cursor.close()
+        connection.commit()
 
-    __blogs_information = cursor.execute('SELECT * from blogs')
-    blogs_information = {}
-    for info in __blogs_information:
-        info = dict(info)
-        blogs_information.update({info.pop('site'): info})
+
+def list_links():
+    with __get_cursor() as cursor:
+        for info in cursor.execute('SELECT * from blogs'):
+            print(info['site'])
+
+
+def main():
+    blogs_information: Dict[str, dict] = {}
+
+    with __get_cursor() as cursor:
+        __blogs_information = cursor.execute('SELECT * from blogs')
+        for info in __blogs_information:
+            info = dict(info)
+            blogs_information.update({info.pop('site'): info})
 
     blogs_last_urls = {
         url: values['last_link']
@@ -301,6 +318,11 @@ def prepare_url(url: str, site: str) -> str:
     return url
 
 
+def remove(site: str) -> None:
+    with __get_cursor() as cursor:
+        cursor.execute('DELETE from blogs WHERE site = ?', (site,))
+
+
 async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
     last_links: Dict[str, str] = {}
     mail_text = ''
@@ -323,27 +345,45 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
 ## Entrypoint
 ############################################################
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Blogs crawler')
+def init_parser() -> argparse.ArgumentParser:
+    _parser = argparse.ArgumentParser(description='Blogs crawler')
 
-    parser.add_argument(
+    _parser.add_argument(
         '-migrate',
         action='store_true',
         default=False,
         help='Create sqlite3 database and prepare tables'
     )
-    parser.add_argument(
+    _parser.add_argument(
         '-crawl',
         action='store_true',
         default=False,
         help='Crawl web links'
     )
-    parser.add_argument(
+    _parser.add_argument(
         '-explore',
         default='',
         type=str,
         help='Add site to watchlist'
     )
+    _parser.add_argument(
+        '-list',
+        action='store_true',
+        default=False,
+        help='List saved sites'
+    )
+    _parser.add_argument(
+        '-remove',
+        default='',
+        type=str,
+        help='Remove site from watchlist'
+    )
+
+    return _parser
+
+
+if __name__ == '__main__':
+    parser = init_parser()
 
     args = parser.parse_args()
 
@@ -358,3 +398,9 @@ if __name__ == '__main__':
     if args.explore:
         loop = asyncio.get_event_loop()
         loop.run_until_complete(explore(args.explore))
+
+    if args.list:
+        list_links()
+
+    if args.remove:
+        remove(args.remove)
