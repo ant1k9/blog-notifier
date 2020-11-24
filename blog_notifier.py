@@ -1,14 +1,12 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 ############################################################
 ## Imports
 ############################################################
 
-import aiohttp
 import argparse
 import asyncio
-import async_timeout
-import bs4
 import contextlib
 import http
 import os
@@ -16,13 +14,17 @@ import re
 import smtplib
 import sqlite3
 import sys
-import yaml
 
 from collections import Counter, namedtuple
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 from urllib.parse import urlparse
+
+import async_timeout
+import bs4
+import aiohttp
+import yaml
 
 
 ############################################################
@@ -80,6 +82,7 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
     assert isinstance(link, str), f'Expected {link} to be a string'
 
     if getattr(response, 'status', None) == http.HTTPStatus.OK:
+        assert isinstance(response, aiohttp.ClientResponse), 'Expected aiohttp.ClientResponse'
         content = await response.content.read()
         soup = bs4.BeautifulSoup(content, 'lxml')
         if blogs_information[link].get('article_container_class'):
@@ -106,7 +109,7 @@ async def explore(site: str):
     try:
         soup: Optional[bs4.BeautifulSoup] = None
 
-        async def get_soup(*args, **kwargs):
+        async def get_soup(*_, **kwargs):
             nonlocal soup
             content = await kwargs['response'].content.read()
             soup = bs4.BeautifulSoup(content, 'lxml')
@@ -121,6 +124,7 @@ async def explore(site: str):
             'div[class*=article]:has(a)',
             'div[class=issue]:has(a)',
             'section:has(a)',
+            'h2:has(a)',
             'tr:has(a)',
             'li:has(a)',
         ):
@@ -145,11 +149,7 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
     article_class = ''
     classes = article.attrs.get('class') or []
     for _class in classes:
-        if (
-            _class.startswith('post')
-            or _class.startswith('article')
-            or _class.startswith('issue')
-        ):
+        if _class.startswith('post') or _class.startswith('article') or _class.startswith('issue'):
             if len(soup.findAll(article.name, {'class': _class})) > 4:
                 article_class = _class
                 break
@@ -159,8 +159,8 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
 def __find_link(article: bs4.element.Tag) -> str:
     links: Counter = Counter()
     first_link = ''
-    for h in ['h1', 'h2', 'h3']:
-        header_link = article.select(f'{h} a[href]')
+    for header in ['h1', 'h2', 'h3']:
+        header_link = article.select(f'{header} a[href]')
         if header_link:
             return header_link[0].attrs.get('href')
     for a_element in article.select('a[href]'):
@@ -200,7 +200,7 @@ def list_links():
             print(info['site'])
 
 
-def main():
+def run():
     blogs_information: Dict[str, dict] = {}
 
     with __get_cursor() as cursor:
@@ -296,7 +296,7 @@ def parse_mail_configuration():
     ):
         if conf.get(first_key, {}).get(second_key) is None:
             print(f'Please provide conf for {first_key} {second_key}')
-            exit(1)
+            sys.exit(1)
         print(
             f'{first_key} {second_key}: '
             f'{"********" if second_key == "password" else conf[first_key][second_key]}'
@@ -382,7 +382,7 @@ def init_parser() -> argparse.ArgumentParser:
     return _parser
 
 
-if __name__ == '__main__':
+def main() -> None:
     parser = init_parser()
 
     args = parser.parse_args()
@@ -392,7 +392,7 @@ if __name__ == '__main__':
 
     if args.crawl:
         parse_mail_configuration()
-        main()
+        run()
         notify()
 
     if args.explore:
@@ -404,3 +404,7 @@ if __name__ == '__main__':
 
     if args.remove:
         remove(args.remove)
+
+
+if __name__ == '__main__':
+    main()
