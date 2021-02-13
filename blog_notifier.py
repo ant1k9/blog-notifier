@@ -34,6 +34,10 @@ import yaml
 BLOGS_DB = 'blogs.sqlite3'
 NewPostTuple = namedtuple('new_post', 'site header url')
 TIMEOUT = 30
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:15.0) '
+                  'Gecko/20100101 Firefox/15.0.1 ua.safari',
+}
 
 conf: Dict[str, Any] = {}
 
@@ -65,7 +69,7 @@ def async_request(func):
         async def inner(*args, **kwargs):
             try:
                 async with async_timeout.timeout(TIMEOUT):
-                    async with aiohttp.ClientSession() as session:
+                    async with aiohttp.ClientSession(headers=HEADERS) as session:
                         async with session.get(link) as response:
                             kwargs.update({'link': link, 'response': response})
                             await func(*args, **kwargs)
@@ -93,13 +97,15 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
         else:
             posts = soup.findAll(blogs_information[link].get('article_container'))
 
+        added_urls = set()
         for post in posts:
             url = prepare_url(__find_link(post), link)
-            if url == prepare_url('', link):
+            if url == prepare_url('', link) or url in added_urls:
                 continue
             if url == last_post:
                 break
 
+            added_urls.add(url)
             queue.put_nowait(
                 NewPostTuple(link, post.text.replace('\n', ' ')[:400] + '...', url)
             )
