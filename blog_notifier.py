@@ -19,11 +19,12 @@ from collections import Counter, namedtuple
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
+import aiohttp
 import async_timeout
 import bs4
-import aiohttp
+import requests
 import yaml
 
 
@@ -33,6 +34,10 @@ import yaml
 
 BLOGS_DB = 'blogs.sqlite3'
 NewPostTuple = namedtuple('new_post', 'site header url')
+
+MAIL_MODE = 'mail'
+TELEGRAM_MODE = 'telegram'
+
 TIMEOUT = 30
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:15.0) '
@@ -107,7 +112,7 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
 
             added_urls.add(url)
             queue.put_nowait(
-                NewPostTuple(link, post.text.replace('\n', ' ')[:400] + '...', url)
+                NewPostTuple(link, post.text[:400] + '...', url)
             )
 
 
@@ -260,6 +265,9 @@ def migrate():
 
 
 def notify():
+    if conf['mode'] == TELEGRAM_MODE:  # noop
+        return
+
     with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
         smtp.login(conf['client']['email'], conf['client']['password'])
 
@@ -283,30 +291,36 @@ def notify():
 def parse_mail_configuration():
     with open('credentials.yml') as rfile:
         conf.update(yaml.load(rfile, Loader=yaml.FullLoader))
-        conf['client']['email'] = (
-            conf['client']['email'] or os.environ.get('NOTIFIER_CLIENT_EMAIL')
-        )
-        conf['client']['password'] = (
-            conf['client']['password'] or os.environ.get('NOTIFIER_CLIENT_PASSWORD')
-        )
-        conf['client']['send_to'] = (
-            conf['client']['send_to'] or os.environ.get('NOTIFIER_CLIENT_SEND_TO')
-        )
+        for section, key in (
+            ('client', 'email'),
+            ('client', 'password'),
+            ('client', 'send_to'),
+            ('telegram', 'bot_token'),
+            ('telegram', 'channel'),
+        ):
+            conf[section][key] = (
+                conf[section][key] or os.environ.get(f'NOTIFIER_{section.upper()}_{key.upper()}')
+            )
 
-    for (first_key, second_key) in (
-        ('server', 'host'),
-        ('server', 'port'),
-        ('client', 'email'),
-        ('client', 'password'),
-        ('client', 'send_to'),
+    for (first_key, second_key, mode) in (
+        ('server', 'host', MAIL_MODE),
+        ('server', 'port', MAIL_MODE),
+        ('client', 'email', MAIL_MODE),
+        ('client', 'password', MAIL_MODE),
+        ('client', 'send_to', MAIL_MODE),
+        ('telegram', 'bot_token', TELEGRAM_MODE),
+        ('telegram', 'channel', TELEGRAM_MODE),
     ):
-        if conf.get(first_key, {}).get(second_key) is None:
+        if conf.get(first_key, {}).get(second_key) is None and conf.get('mode') == mode:
             print(f'Please provide conf for {first_key} {second_key}')
             sys.exit(1)
         print(
             f'{first_key} {second_key}: '
-            f'{"********" if second_key == "password" else conf[first_key][second_key]}'
+            f'{"********" if second_key in ("password", "bot_token") else conf[first_key][second_key]}'
         )
+
+    if conf['mode'] == TELEGRAM_MODE:  # noop
+        return
 
     try:
         with smtplib.SMTP_SSL(conf['server']['host'], conf['server']['port']) as smtp:
@@ -331,19 +345,30 @@ def remove(site: str) -> None:
 
 async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
     last_links: Dict[str, str] = {}
-    mail_text = ''
+    mail_text, tg_messages = '', []
 
     while not queue.empty():
         parsed_tuple = await queue.get()
-        site, header, url = parsed_tuple.site, parsed_tuple.header, parsed_tuple.url
+        site, text, url = parsed_tuple.site, parsed_tuple.header, parsed_tuple.url
         if site not in last_links:
             last_links.update({site: url})
-        mail_text += f'{header}\n\t\t{url}\n\n'
+        mail_text += text.replace("\n", " ") + f'\n\t\t{url}\n\n'
+        tg_messages.append(f'{text}\n\n{url}')
 
     if mail_text:
         mail_text = mail_text.replace('"', "'")
         mail_text = re.sub('[ ]+', ' ', mail_text)
-        execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
+        if conf['mode'] == MAIL_MODE:
+            execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
+        elif conf['mode'] == TELEGRAM_MODE and conf['telegram']['bot_token']:
+            for message in tg_messages:
+                requests.get(
+                    f'https://api.telegram.org/bot{conf["telegram"]["bot_token"]}/sendMessage'
+                    f'?chat_id={conf["telegram"]["channel"]}&text={quote(message)}'
+                )
+        else:
+            return
+
     blogs_information.update(last_links)
 
 

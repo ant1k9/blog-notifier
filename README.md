@@ -21,22 +21,28 @@ After that you can crawl for updates whenever you like.
 ### Example configuration
 
 ```yaml
+mode: mail
+
 server:
-    host: smtp.gmail.com
-    port: 465
+  host: smtp.gmail.com
+  port: 465
 
 client:
-    email: example@gmail.com
-    password: examplepassword
-    send_to: example@gmail.com
+  email: example@gmail.com
+  password: examplepassword
+  send_to: example@gmail.com
+
+telegram:
+  bot_token: token
+  channel: @channel
 ```
 
 Also you can define client's credentiials with environment variables.
 
 ```bash
->>> export NOTIFIER_CLIENT_EMAIL='example@gmail.com'
->>> export NOTIFIER_CLIENT_PASSWORD='examplepassword'
->>> export NOTIFIER_CLIENT_SEND_TO='example@gmail.com'
+$ export NOTIFIER_CLIENT_EMAIL='example@gmail.com'
+$ export NOTIFIER_CLIENT_PASSWORD='examplepassword'
+$ export NOTIFIER_CLIENT_SEND_TO='example@gmail.com'
+$ export NOTIFIER_TELEGRAM_BOT_TOKEN='token'
+$ export NOTIFIER_TELEGRAM_CHANNEL='@channel'
 ```
-
-### TODO
