@@ -94,7 +94,7 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
         assert isinstance(response, aiohttp.ClientResponse), 'Expected aiohttp.ClientResponse'
         content = await response.content.read()
         soup = bs4.BeautifulSoup(content, 'lxml')
-        if blogs_information[link].get('article_container_class'):
+        if blogs_information[link].get('article_container_class') is not None:
             posts = soup.findAll(
                 blogs_information[link].get('article_container'),
                 {'class': blogs_information[link].get('article_container_class')}
