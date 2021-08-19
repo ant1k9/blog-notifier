@@ -93,7 +93,9 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
     if getattr(response, 'status', None) == http.HTTPStatus.OK:
         assert isinstance(response, aiohttp.ClientResponse), 'Expected aiohttp.ClientResponse'
         content = await response.content.read()
-        soup = bs4.BeautifulSoup(content, 'lxml')
+        soup = bs4.BeautifulSoup(
+            content, 'lxml-xml' if response.real_url.human_repr().endswith('xml') else 'lxml',
+        )
         if blogs_information[link].get('article_container_class') is not None:
             posts = soup.findAll(
                 blogs_information[link].get('article_container'),
@@ -123,7 +125,7 @@ async def explore(site: str):
         async def get_soup(*_, **kwargs):
             nonlocal soup
             content = await kwargs['response'].content.read()
-            soup = bs4.BeautifulSoup(content, 'lxml')
+            soup = bs4.BeautifulSoup(content, 'lxml-xml' if site.endswith('xml') else 'lxml')
         await async_request(get_soup)(site)()
         assert isinstance(soup, bs4.BeautifulSoup), f'Cannot get content of {site}'
 
@@ -138,6 +140,7 @@ async def explore(site: str):
             'h2:has(a)',
             'tr:has(a)',
             'li:has(a)',
+            'item:has(link)',
         ):
             articles = soup.select(selector)
             if len(articles) > 1:
@@ -178,6 +181,10 @@ def __find_link(article: bs4.element.Tag) -> str:
         if not first_link:
             first_link = a_element.attrs.get('href')
         links.update([a_element.attrs.get('href')])
+    for link_element in article.select('link'):
+        if not first_link:
+            first_link = link_element.text
+        links.update([link_element.text])
 
     if len(links) == 0:
         return ''
