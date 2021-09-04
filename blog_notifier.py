@@ -215,7 +215,7 @@ def __get_cursor() -> Generator[sqlite3.Cursor, None, None]:
 def list_links():
     with __get_cursor() as cursor:
         for info in cursor.execute('SELECT * from blogs'):
-            print(info['site'])
+            print(f'\033[1m{info["site"]}\033[0m\n{info["last_link"]}\n')
 
 
 def run():
