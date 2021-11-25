@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 ############################################################
-## Imports
+# Imports
 ############################################################
 
 import argparse
@@ -29,7 +29,7 @@ import yaml
 
 
 ############################################################
-## Constants and variables
+# Constants and variables
 ############################################################
 
 BLOGS_DB = 'blogs.sqlite3'
@@ -48,7 +48,7 @@ conf: Dict[str, Any] = {}
 
 
 ############################################################
-## Functions
+# Functions
 ############################################################
 
 def add_to_library(soup: bs4.BeautifulSoup, article: bs4.element.Tag, site: str):
@@ -58,12 +58,13 @@ def add_to_library(soup: bs4.BeautifulSoup, article: bs4.element.Tag, site: str)
         if article_class:
             execute(
                 'INSERT INTO blogs (site, last_link, article_container, article_container_class) '
-                f'VALUES("{site}", "{last_link}", "{article.name}", "{article_class}")'
+                'VALUES(?, ?, ?, ?)',
+                site, last_link, article.name, article_class,
             )
         else:
             execute(
-                'INSERT INTO blogs (site, last_link, article_container) '
-                f'VALUES("{site}", "{last_link}", "{article.name}")'
+                'INSERT INTO blogs (site, last_link, article_container) VALUES(?, ?, ?)',
+                site, last_link, article.name,
             )
     except sqlite3.IntegrityError:
         print('\nSite is already present in database')
@@ -150,9 +151,9 @@ async def explore(site: str):
         print(f'Unable to fetch {site}')
 
 
-def execute(query: str):
+def execute(query: str, *args):
     connection = sqlite3.Connection(BLOGS_DB)
-    cursor = connection.execute(query)
+    cursor = connection.execute(query, args)
     result = cursor.fetchall()
     connection.commit()
     connection.close()
@@ -243,7 +244,7 @@ def run():
     loop.run_until_complete(update_blogs(queue, blogs_last_urls))
 
     for site, last_link in blogs_last_urls.items():
-        execute(f'UPDATE blogs SET last_link = "{last_link}" WHERE site = "{site}"')
+        execute('UPDATE blogs SET last_link = ? WHERE site = ?', last_link, site)
 
 
 def migrate():
@@ -292,7 +293,7 @@ def notify():
                 f'{conf["client"]["send_to"]}',
                 msg.encode()
             )
-            execute(f'UPDATE mails SET is_sent = 1 WHERE id = {_id}')
+            execute('UPDATE mails SET is_sent = 1 WHERE id = ?', _id)
 
 
 def parse_mail_configuration():
@@ -346,8 +347,7 @@ def prepare_url(url: str, site: str) -> str:
 
 
 def remove(site: str) -> None:
-    with __get_cursor() as cursor:
-        cursor.execute('DELETE from blogs WHERE site = ?', (site,))
+    execute('DELETE from blogs WHERE site = ?', site)
 
 
 async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
@@ -366,7 +366,7 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
         mail_text = mail_text.replace('"', "'")
         mail_text = re.sub('[ ]+', ' ', mail_text)
         if conf['mode'] == MAIL_MODE:
-            execute(f'INSERT INTO mails (mail) VALUES ("{mail_text}")')
+            execute('INSERT INTO mails (mail) VALUES (?)', mail_text)
         elif conf['mode'] == TELEGRAM_MODE and conf['telegram']['bot_token']:
             for message in tg_messages:
                 requests.get(
@@ -380,7 +380,7 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
 
 
 ############################################################
-## Entrypoint
+# Entrypoint
 ############################################################
 
 def init_parser() -> argparse.ArgumentParser:
