@@ -137,6 +137,7 @@ async def explore(site: str):
             'div[class*=post]:has(a)',
             'div[class*=article]:has(a)',
             'div[class=issue]:has(a)',
+            'div[class=summary]:has(a)',
             'section:has(a)',
             'h2:has(a)',
             'tr:has(a)',
@@ -164,8 +165,8 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
     article_class = ''
     classes = article.attrs.get('class') or []
     for _class in classes:
-        if _class.startswith('post') or _class.startswith('article') or _class.startswith('issue'):
-            if len(soup.findAll(article.name, {'class': _class})) > 4:
+        for prefix in ('post', 'article', 'issue', 'summary'):
+            if _class.startswith(prefix) and len(soup.findAll(article.name, {'class': _class})) > 4:
                 article_class = _class
                 break
     return article_class
