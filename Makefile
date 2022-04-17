@@ -4,5 +4,5 @@ BLOGS_DB=blogs.sqlite3
 
 .PHONY: backup
 backup:
-	@zip ${BACKUP_FILE} ${BLOGS_DB} &> /dev/null
+	@zip ${BACKUP_FILE} ${BLOGS_DB} \&> /dev/null
 	@echo ${BACKUP_FILE}
