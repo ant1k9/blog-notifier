@@ -175,7 +175,7 @@ def __find_class(soup: bs4.BeautifulSoup, article: bs4.element.Tag) -> str:
 def __find_link(article: bs4.element.Tag) -> str:
     links: Counter = Counter()
     first_link = ''
-    for header in ['h1', 'h2', 'h3']:
+    for header in ('h1', 'h2', 'h3'):
         header_link = article.select(f'{header} a[href]')
         if header_link:
             return header_link[0].attrs.get('href')
