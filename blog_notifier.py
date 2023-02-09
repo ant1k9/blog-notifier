@@ -32,8 +32,10 @@ import yaml
 # Constants and variables
 ############################################################
 
-BLOGS_DB = 'blogs.sqlite3'
 NewPostTuple = namedtuple('new_post', 'site header url')
+
+CONFIG_FILE = os.environ.get('NOTIFIER_CONFIG', 'credentials.yml')
+BLOGS_DB = os.environ.get('NOTIFIER_DB', 'blogs.sqlite3')
 
 MAIL_MODE = 'mail'
 TELEGRAM_MODE = 'telegram'
@@ -297,8 +299,9 @@ def notify():
             execute('UPDATE mails SET is_sent = 1 WHERE id = ?', _id)
 
 
-def parse_mail_configuration():
-    with open('credentials.yml') as rfile:
+def parse_configuration():
+    os.environ.get('')
+    with open(CONFIG_FILE) as rfile:
         conf.update(yaml.load(rfile, Loader=yaml.FullLoader))
         for section, key in (
             ('client', 'email'),
@@ -430,7 +433,7 @@ def main() -> None:
         migrate()
 
     if args.crawl:
-        parse_mail_configuration()
+        parse_configuration()
         run()
         notify()
 

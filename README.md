@@ -40,6 +40,8 @@ telegram:
 Also you can define client's credentiials with environment variables.
 
 ```bash
+$ export NOTIFIER_CONFIG='credentials.yml'
+$ export NOTIFIER_DB='db.sqlite3'
 $ export NOTIFIER_CLIENT_EMAIL='example@gmail.com'
 $ export NOTIFIER_CLIENT_PASSWORD='examplepassword'
 $ export NOTIFIER_CLIENT_SEND_TO='example@gmail.com'
