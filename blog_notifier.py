@@ -222,6 +222,10 @@ def list_links():
             print(f'\033[1m{info["site"]}\033[0m\n{info["last_link"]}\n')
 
 
+async def gather_tasks(*tasks):
+    await asyncio.gather(*tasks)
+
+
 def run():
     blogs_information: Dict[str, dict] = {}
 
@@ -236,15 +240,17 @@ def run():
         for url, values in blogs_information.items()
     }
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
     queue = asyncio.Queue()
     tasks = [
         crawl(site)(queue, blogs_information, blogs_last_urls[site])
         for site in blogs_last_urls
     ]
 
-    loop.run_until_complete(asyncio.gather(*tasks))
-    loop.run_until_complete(update_blogs(queue, blogs_last_urls))
+    asyncio.run(gather_tasks(*tasks))
+    asyncio.run(update_blogs(queue, blogs_last_urls))
 
     for site, last_link in blogs_last_urls.items():
         execute('UPDATE blogs SET last_link = ? WHERE site = ?', last_link, site)
@@ -438,8 +444,9 @@ def main() -> None:
         notify()
 
     if args.explore:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(explore(args.explore))
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        asyncio.run(explore(args.explore))
 
     if args.list:
         list_links()
