@@ -40,6 +40,7 @@ BLOGS_DB = os.environ.get('NOTIFIER_DB', 'blogs.sqlite3')
 MAIL_MODE = 'mail'
 TELEGRAM_MODE = 'telegram'
 
+LIMIT_NEW_POSTS = 3
 TIMEOUT = 30
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux i686; rv:15.0) '
@@ -108,7 +109,7 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
             posts = soup.findAll(blogs_information[link].get('article_container'))
 
         added_urls = set()
-        for post in posts:
+        for post in list(posts)[:LIMIT_NEW_POSTS]:
             url = prepare_url(__find_link(post), link)
             if url == prepare_url('', link) or url in added_urls:
                 continue
