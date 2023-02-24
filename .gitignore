@@ -162,3 +162,5 @@ cython_debug/
 #.idea/
 
 *.sqlite3
+*credentials.yml
+!credentials.example.yml

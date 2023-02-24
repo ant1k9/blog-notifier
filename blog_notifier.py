@@ -69,6 +69,7 @@ def add_to_library(soup: bs4.BeautifulSoup, article: bs4.element.Tag, site: str)
                 'INSERT INTO blogs (site, last_link, article_container) VALUES(?, ?, ?)',
                 site, last_link, article.name,
             )
+        execute('INSERT INTO posts (site, link) VALUES(?, ?)', site, last_link)
     except sqlite3.IntegrityError:
         print('\nSite is already present in database')
 
@@ -89,7 +90,7 @@ def async_request(func):
 
 
 @async_request
-async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, **kwargs):
+async def crawl(queue: asyncio.Queue, blogs_information: dict, **kwargs):
     response = kwargs.get('response')
     link = kwargs.get('link')
     assert isinstance(link, str), f'Expected {link} to be a string'
@@ -113,8 +114,8 @@ async def crawl(queue: asyncio.Queue, blogs_information: dict, last_post=None, *
             url = prepare_url(__find_link(post), link)
             if url == prepare_url('', link) or url in added_urls:
                 continue
-            if url == last_post:
-                break
+            if execute('SELECT 1 FROM posts WHERE site = ? AND link = ?', link, url):
+                continue
 
             added_urls.add(url)
             queue.put_nowait(
@@ -237,8 +238,7 @@ def run():
             blogs_information.update({info.pop('site'): info})
 
     blogs_last_urls = {
-        url: values['last_link']
-        for url, values in blogs_information.items()
+        url: [] for url, values in blogs_information.items()
     }
 
     loop = asyncio.new_event_loop()
@@ -246,40 +246,53 @@ def run():
 
     queue = asyncio.Queue()
     tasks = [
-        crawl(site)(queue, blogs_information, blogs_last_urls[site])
+        crawl(site)(queue, blogs_information)
         for site in blogs_last_urls
     ]
 
     asyncio.run(gather_tasks(*tasks))
     asyncio.run(update_blogs(queue, blogs_last_urls))
 
-    for site, last_link in blogs_last_urls.items():
-        execute('UPDATE blogs SET last_link = ? WHERE site = ?', last_link, site)
+    for site, links in blogs_last_urls.items():
+        for i in range(len(links)):
+            if i == 0:
+                execute('UPDATE blogs SET last_link = ? WHERE site = ?', links[i], site)
+            execute('INSERT INTO posts (link, site) VALUES (?, ?)', links[i], site)
 
 
 def migrate():
     blogs_db = Path(BLOGS_DB)
     if not blogs_db.exists():
         blogs_db.touch()
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS blogs (
-                site                    VARCHAR(256) PRIMARY KEY,
-                last_link               VARCHAR(256),
-                article_container       VARCHAR(256),
-                article_container_class VARCHAR(256)
-            )
-            """
+
+    execute(
+        """
+        CREATE TABLE IF NOT EXISTS blogs (
+            site                    VARCHAR(256) PRIMARY KEY,
+            last_link               VARCHAR(256),
+            article_container       VARCHAR(256),
+            article_container_class VARCHAR(256)
         )
-        execute(
-            """
-            CREATE TABLE IF NOT EXISTS mails (
-                id      INTEGER PRIMARY KEY AUTOINCREMENT,
-                mail    TEXT,
-                is_sent INTEGER DEFAULT 0
-            )
-            """
+        """
+    )
+    execute(
+        """
+        CREATE TABLE IF NOT EXISTS posts (
+            site    VARCHAR(256),
+            link    VARCHAR(256),
+            FOREIGN KEY (site) REFERENCES blogs(site) ON DELETE CASCADE
         )
+        """
+    )
+    execute(
+        """
+        CREATE TABLE IF NOT EXISTS mails (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            mail    TEXT,
+            is_sent INTEGER DEFAULT 0
+        )
+        """
+    )
 
 
 def notify():
@@ -362,14 +375,12 @@ def remove(site: str) -> None:
 
 
 async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
-    last_links: Dict[str, str] = {}
     mail_text, tg_messages = '', []
 
     while not queue.empty():
         parsed_tuple = await queue.get()
         site, text, url = parsed_tuple.site, parsed_tuple.header, parsed_tuple.url
-        if site not in last_links:
-            last_links.update({site: url})
+        blogs_information[site].append(url)
         mail_text += text.replace("\n", " ") + f'\n\t\t{url}\n\n'
         tg_messages.append(f'{text}\n\n{url}')
 
@@ -386,8 +397,6 @@ async def update_blogs(queue: asyncio.Queue, blogs_information: dict):
                 )
         else:
             return
-
-    blogs_information.update(last_links)
 
 
 ############################################################
