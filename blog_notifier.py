@@ -188,11 +188,12 @@ def __find_link(article: bs4.element.Tag) -> str:
             first_link = a_element.attrs.get('href')
         links.update([a_element.attrs.get('href')])
     for link_element in article.select('link'):
+        href = link_element.attrs.get('href', link_element.text)
         if not first_link:
-            first_link = link_element.text
-        links.update([link_element.text])
+            first_link = href
+        links.update([href])
 
-    if len(links) == 0:
+    if not links:
         return ''
 
     most_common = links.most_common()[0][0]
