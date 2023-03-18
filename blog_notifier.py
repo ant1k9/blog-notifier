@@ -40,7 +40,7 @@ BLOGS_DB = os.environ.get('NOTIFIER_DB', 'blogs.sqlite3')
 MAIL_MODE = 'mail'
 TELEGRAM_MODE = 'telegram'
 
-LIMIT_NEW_POSTS = 3
+LIMIT_NEW_POSTS = int(os.environ.get('NOTIFIER_LIMIT_NEW_POSTS', 3))
 TIMEOUT = 30
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) '
